@@ -9,6 +9,17 @@ const {
   getRandomUserAgent
 } = require('./src/utils');
 
+let hslAsset;
+
+(async function() {
+  hslAsset = await request.get('https://assets.hcaptcha.com/c/b147199/hsl.js');
+  
+  if (!hslAsset) {
+    // hsl file was relocated or removed
+    hslAsset = fs.readFileSync('./src/hsl.js', 'utf-8');
+  }
+})();
+
 function getMouseMovements(timestamp) {
   let lastMovement = timestamp;
   const motionCount = randomFromRange(1000, 10000);
@@ -21,7 +32,6 @@ function getMouseMovements(timestamp) {
 }
 
 async function hsl(req) {
-  const hsl = await request.get('https://assets.hcaptcha.com/c/500c658/hsl.js');
   return new Promise((resolve, reject) => {
     const code = `
     var self = {};
@@ -29,7 +39,7 @@ async function hsl(req) {
       return new Buffer(a, 'base64').toString('binary');
     }
   
-    ${hsl}
+    ${hslAsset}
   
     hsl('${req}').then(resolve).catch(reject)
     `;
@@ -42,13 +52,14 @@ async function hsl(req) {
 }
 
 
-async function tryToSolve(sitekey, host) {
+async function tryToSolve(sitekey, host, agent) {
   const userAgent = getRandomUserAgent();
   const headers = {
     'User-Agent': userAgent
   };
   
   let response = await request({
+    agent,
     method: 'get',
     headers,
     json: true,
@@ -57,6 +68,7 @@ async function tryToSolve(sitekey, host) {
 
   let timestamp = Date.now() + randomFromRange(30, 120);
   response = await request({
+    agent,
     method: 'post',
     headers,
     json: true,
@@ -96,6 +108,7 @@ async function tryToSolve(sitekey, host) {
   };
 
   response = await request(`https://hcaptcha.com/checkcaptcha/${key}`, {
+    agent,
     method: 'post',
     headers,
     json: true,
@@ -108,14 +121,14 @@ async function tryToSolve(sitekey, host) {
 }
 
 async function solveCaptcha(url, options = {}) {
-  const { gentleMode, timeoutInMs = 12000000 } = options;
+  const { agent, gentleMode, timeoutInMs = 12000000 } = options;
   const { hostname } = Url.parse(url);
   const siteKey = uuid();
   const startingTime = Date.now();
 
   while (true) {
     try {
-      const result = await tryToSolve(siteKey, hostname);
+      const result = await tryToSolve(siteKey, hostname, agent);
       if (result) {
         return result;
       }
